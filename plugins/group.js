@@ -18,7 +18,7 @@ const name = 'group';
 const commands = ['welcome', 'setname', 'setdesc', 'open', 'close', 'kick', 'add', 'promote', 'demote', 'group'];
 
 async function exec(ctx) {
-  const { sock, msg, command, args, sendText, jidUtils } = ctx;
+  const { sock, msg, command, args, sendText, jidUtils, readDB, writeDB } = ctx;
   const chatId = msg.chatId;
   const sender = msg.sender;
   const isGroup = msg.isGroup;
@@ -31,14 +31,14 @@ async function exec(ctx) {
 
   if (command === 'welcome') {
     const sub = args[0] || '';
-    const db = require('../lib/database').readDB();
+    const db = readDB();
     if (sub === 'on') {
       db.settings.welcome[chatId] = true;
-      require('../lib/database').writeDB();
+      writeDB();
       await sendText(sock, chatId, 'Welcome diaktifkan untuk grup ini.');
     } else if (sub === 'off') {
       db.settings.welcome[chatId] = false;
-      require('../lib/database').writeDB();
+      writeDB();
       await sendText(sock, chatId, 'Welcome dinonaktifkan untuk grup ini.');
     } else {
       await sendText(sock, chatId, 'Gunakan: .welcome on / .welcome off');
@@ -106,7 +106,6 @@ async function exec(ctx) {
       await sendText(sock, chatId, `${command === 'promote' ? 'Promote' : 'Demote'} gagal.`);
     }
   } else if (command === 'group') {
-    // show group menu as list
     const sections = [
       {
         title: 'Group Commands',
