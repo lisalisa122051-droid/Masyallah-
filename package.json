@@ -1,0 +1,25 @@
+{
+  "name": "bot-wa-md",
+  "version": "1.0.0",
+  "description": "WhatsApp Multi-Device Bot using @im-dims/baileys-md",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "nodemon index.js"
+  },
+  "author": "Your Name",
+  "license": "MIT",
+  "dependencies": {
+    "@im-dims/baileys-md": "^1.0.0",
+    "pino": "^8.0.0",
+    "qrcode-terminal": "^0.12.0",
+    "node-fetch": "^2.6.7",
+    "axios": "^1.4.0",
+    "file-type": "^18.0.0",
+    "mime-types": "^2.1.35",
+    "shortid": "^2.2.16"
+  },
+  "engines": {
+    "node": ">=16"
+  }
+}
