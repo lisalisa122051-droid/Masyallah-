@@ -1,159 +1,81 @@
-/**
- * handler.js
- * Central event handler for incoming messages and events
- */
-
-const { jidUtils } = require('./lib/jidUtils');
-const { sendButtonMessage, sendListMessage, sendText } = require('./lib/function');
-const { readDB, writeDB } = require('./lib/database');
-const serialize = require('./lib/serialize');
 const fs = require('fs');
 const path = require('path');
-const config = require('./config');
+const config = require('./config.js');
+const { isOwner, isGroup, getGroupAdmins } = require('./lib/jidUtils.js');
+const db = require('./lib/database.js');
 
-const pluginsPath = path.join(__dirname, 'plugins');
-const pluginFiles = fs.existsSync(pluginsPath) ? fs.readdirSync(pluginsPath).filter(f => f.endsWith('.js')) : [];
-
+// Load all plugins
 const plugins = {};
+const pluginFiles = fs.readdirSync('./plugins').filter(file => file.endsWith('.js'));
+
 for (const file of pluginFiles) {
-  const p = require(path.join(pluginsPath, file));
-  plugins[p.name] = p;
+    const pluginName = file.replace('.js', '');
+    plugins[pluginName] = require(`./plugins/${file}`);
 }
 
-module.exports = async (sock, ev) => {
-  // messages.upsert
-  ev.on('messages.upsert', async (m) => {
+// Main handler
+async function handler(sock, message) {
     try {
-      const messages = m.messages || [];
-      for (const raw of messages) {
-        if (!raw.message) continue;
-        const msg = await serialize(raw, sock);
-        if (!msg) continue;
-
-        // Ignore messages from self
-        if (msg.isSelf) continue;
-
-        // Basic normalization
-        const sender = msg.sender; // normalized phone like 628xx
-        const isGroup = msg.isGroup;
-        const text = (msg.text || '').trim();
-
-        // Command detection
-        const prefix = config.prefix;
-        const isCmd = text.startsWith(prefix);
-        const args = isCmd ? text.slice(prefix.length).trim().split(/\s+/) : [];
-        const command = isCmd ? args.shift().toLowerCase() : null;
-
-        // Global plugin dispatcher
-        if (isCmd && command) {
-          // iterate plugins to find command
-          for (const key of Object.keys(plugins)) {
-            const plugin = plugins[key];
-            if (!plugin || !plugin.commands) continue;
-            if (plugin.commands.includes(command)) {
-              // permission checks
-              const isOwner = jidUtils.isOwner(sender);
-              const groupMeta = msg.groupMetadata || null;
-              const isAdmin = groupMeta ? (groupMeta.admins || []).includes(sender) : false;
-
-              // call plugin handler
-              try {
-                await plugin.exec({
-                  sock,
-                  msg,
-                  command,
-                  args,
-                  sender,
-                  isGroup,
-                  isOwner,
-                  isAdmin,
-                  sendButtonMessage,
-                  sendListMessage,
-                  sendText,
-                  readDB,
-                  writeDB,
-                  jidUtils,
-                  config
-                });
-              } catch (err) {
-                console.error('Plugin error', plugin.name, err);
-                await sendText(sock, msg.chatId, `Terjadi error pada plugin ${plugin.name}`);
-              }
-              break;
+        const { body, from, sender, isGroup, isOwner, command, args, isCmd } = message;
+        
+        // Skip if not a command
+        if (!isCmd) {
+            // Auto reply
+            if (config.autoreply.status && !isGroup) {
+                const autoReply = config.autoreply.message;
+                await sock.sendMessage(from, { text: autoReply });
             }
-          }
-        } else {
-          // Non-command handlers: antilink, welcome, etc.
-          const db = readDB();
-          // Anti-link
-          const antilink = db.settings?.antilink || { enabled: false, kick: false };
-          if (isGroup && antilink.enabled && msg.text) {
-            const hasLink = /https?:\/\/|wa.me\/|chat.whatsapp.com\//i.test(msg.text);
-            if (hasLink) {
-              // if sender is admin or owner, ignore
-              const groupMeta = msg.groupMetadata || null;
-              const isAdmin = groupMeta ? (groupMeta.admins || []).includes(sender) : false;
-              if (!isAdmin && !jidUtils.isOwner(sender)) {
-                // try delete message (Baileys supports message deletion by key)
-                try {
-                  await sock.sendMessage(msg.chatId, { delete: { remoteJid: msg.chatId, fromMe: false, id: msg.id } });
-                } catch (e) {
-                  // ignore
+            return;
+        }
+        
+        // Check if command exists
+        let commandFound = false;
+        
+        // Search command in all plugins
+        for (const pluginName in plugins) {
+            const plugin = plugins[pluginName];
+            if (plugin.commands && plugin.commands[command]) {
+                const cmdConfig = plugin.commands[command];
+                
+                // Check permissions
+                if (cmdConfig.owner && !isOwner) {
+                    await sock.sendMessage(from, { text: 'This command is for owner only!' });
+                    return;
                 }
-                if (antilink.kick) {
-                  try {
-                    // remove participant by normalized number
-                    const targetJid = `${msg.sender}@s.whatsapp.net`;
-                    await sock.groupParticipantsUpdate(msg.chatId, [targetJid], 'remove');
-                  } catch (e) {
-                    // ignore
-                  }
+                
+                if (cmdConfig.group && !isGroup) {
+                    await sock.sendMessage(from, { text: 'This command only works in groups!' });
+                    return;
                 }
-              }
+                
+                if (cmdConfig.admin && isGroup) {
+                    const groupAdmins = await getGroupAdmins(sock, from);
+                    if (!groupAdmins.includes(sender)) {
+                        await sock.sendMessage(from, { text: 'This command is for admin only!' });
+                        return;
+                    }
+                }
+                
+                // Execute command
+                await plugin.commands[command].execute(sock, message, args);
+                commandFound = true;
+                break;
             }
-          }
         }
-      }
-    } catch (err) {
-      console.error('messages.upsert handler error', err);
-    }
-  });
-
-  // group updates
-  ev.on('groups.update', async (updates) => {
-    for (const u of updates) {
-      console.log('Group update', u);
-    }
-  });
-
-  // participant updates
-  ev.on('group-participants.update', async (updates) => {
-    for (const u of updates) {
-      // handle welcome/goodbye if enabled
-      try {
-        const db = readDB();
-        const welcomeSettings = db.settings?.welcome || {};
-        const chatId = u.id;
-        const enabled = welcomeSettings[chatId];
-        if (!enabled) continue;
-        if (u.action === 'add') {
-          const added = u.participants || [];
-          for (const p of added) {
-            const num = jidUtils.extractPhoneFromJid(p);
-            await sendText(sock, chatId, `Selamat datang @${num}\n${config.welcomeMessage}`);
-          }
-        } else if (u.action === 'remove') {
-          const removed = u.participants || [];
-          for (const p of removed) {
-            const num = jidUtils.extractPhoneFromJid(p);
-            await sendText(sock, chatId, `Sampai jumpa @${num}\n${config.goodbyeMessage}`);
-          }
+        
+        // Command not found
+        if (!commandFound) {
+            await sock.sendMessage(from, { 
+                text: `Command "${command}" not found. Type .menu to see available commands.` 
+            });
         }
-      } catch (e) {
-        // ignore
-      }
+        
+    } catch (error) {
+        console.error('Handler error:', error);
+        await sock.sendMessage(message.from, { 
+            text: 'An error occurred while processing your command.' 
+        });
     }
-  });
+}
 
-  // other events handled elsewhere
-};
+module.exports = handler;
