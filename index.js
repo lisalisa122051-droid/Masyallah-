@@ -1,33 +1,94 @@
-/**
- * index.js
- * Entrypoint for bot-wa-md (Baileys v4)
- */
+const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion, makeCacheableSignalKeyStore, delay } = require('@whiskeysockets/baileys');
+const { Boom } = require('@hapi/boom');
+const qrcode = require('qrcode-terminal');
+const fs = require('fs-extra');
+const path = require('path');
+const P = require('pino');
 
-const { startConnection } = require('./lib/connection');
-const handler = require('./handler');
-const { loadDatabase } = require('./lib/database');
+const config = require('./config.js');
+const handler = require('./handler.js');
+const { serialize } = require('./lib/serialize.js');
 
-(async () => {
-  try {
-    // Load DB
-    await loadDatabase();
+// Create session directory if not exists
+if (!fs.existsSync('./session')) {
+    fs.mkdirSync('./session');
+}
 
-    // Start connection and pass handler
-    const { sock, ev } = await startConnection(handler);
-
-    // Keep process alive
-    process.on('uncaughtException', (err) => {
-      console.error('Uncaught Exception', err);
+// Start bot
+async function startBot() {
+    const { state, saveCreds } = await useMultiFileAuthState('./session');
+    const { version } = await fetchLatestBaileysVersion();
+    
+    const sock = makeWASocket({
+        version,
+        logger: P({ level: 'silent' }),
+        printQRInTerminal: false,
+        auth: {
+            creds: state.creds,
+            keys: makeCacheableSignalKeyStore(state.keys, P({ level: 'silent' })),
+        },
+        browser: ['Ubuntu', 'Chrome', '20.0.04'],
+        generateHighQualityLinkPreview: true,
+        getMessage: async (key) => {
+            return {
+                conversation: 'message unavailable'
+            };
+        },
     });
 
-    process.on('unhandledRejection', (err) => {
-      console.error('Unhandled Rejection', err);
+    // Save credentials when updated
+    sock.ev.on('creds.update', saveCreds);
+
+    // QR Code generation
+    sock.ev.on('connection.update', async (update) => {
+        const { connection, lastDisconnect, qr } = update;
+        
+        if (qr) {
+            console.log('Scan QR Code below:');
+            qrcode.generate(qr, { small: true });
+        }
+        
+        if (connection === 'close') {
+            const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
+            console.log('Connection closed due to:', lastDisconnect?.error, ', reconnecting:', shouldReconnect);
+            
+            if (shouldReconnect) {
+                await delay(5000);
+                startBot();
+            }
+        } else if (connection === 'open') {
+            console.log('Bot connected successfully!');
+            console.log('Welcome to WhatsApp Multi-Device Bot');
+        }
     });
 
-    console.log('Bot is running...');
-  } catch (e) {
-    console.error('Failed to start bot', e);
-    process.exit(1);
-  }
-})();
+    // Process messages
+    sock.ev.on('messages.upsert', async (m) => {
+        const msg = m.messages[0];
+        if (!msg.message || msg.key.remoteJid === 'status@broadcast') return;
+        
+        try {
+            // Serialize message
+            const serialized = await serialize(msg, sock);
+            
+            // Send to handler
+            await handler(sock, serialized);
+        } catch (error) {
+            console.error('Error processing message:', error);
+        }
+    });
 
+    // Anti-crash
+    process.on('unhandledRejection', (reason, promise) => {
+        console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+    });
+
+    process.on('uncaughtException', (error) => {
+        console.error('Uncaught Exception:', error);
+    });
+
+    return sock;
+}
+
+// Start the bot
+startBot();
