@@ -1,15 +1,13 @@
 {
   "users": {},
-  "chats": {},
   "groups": {},
   "settings": {
-    "antilink": {
-      "enabled": false,
-      "kick": false
-    },
-    "welcome": {}
+    "antilink": false,
+    "welcome": true,
+    "goodbye": true
   },
-  "owner": {
-    "number": "6281234567890"
+  "stats": {
+    "totalCommands": 0,
+    "startTime": ""
   }
 }
