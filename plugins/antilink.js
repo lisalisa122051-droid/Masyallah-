@@ -1,36 +1,102 @@
-/**
- * plugins/antilink.js
- * Anti-link management:
- * - antilink on/off
- * - auto delete link
- * - kick pelanggar (admin immune)
- */
+const db = require('../lib/database.js');
+const config = require('../config.js');
+const { getGroupAdmins } = require('../lib/jidUtils.js');
 
-const name = 'antilink';
-const commands = ['antilink'];
+const commands = {
+    antilink: {
+        help: 'Toggle anti-link protection',
+        category: 'Group',
+        group: true,
+        admin: true,
+        execute: async (sock, message, args) => {
+            const { from } = message;
+            
+            if (args.length === 0) {
+                const settings = db.getGroupSettings(from);
+                await sock.sendMessage(from, {
+                    text: `Anti-link protection is currently *${settings.antilink ? 'ON' : 'OFF'}*\n\nUsage: .antilink <on/off>`
+                });
+                return;
+            }
+            
+            const action = args[0].toLowerCase();
+            if (action === 'on' || action === 'off') {
+                db.setAntilink(from, action === 'on');
+                await sock.sendMessage(from, {
+                    text: `Anti-link protection has been turned *${action}*`
+                });
+            } else {
+                await sock.sendMessage(from, {
+                    text: 'Invalid option. Use "on" or "off"'
+                });
+            }
+        }
+    }
+};
 
-async function exec(ctx) {
-  const { sock, msg, command, args, sendText, readDB, writeDB, jidUtils } = ctx;
-  const chatId = msg.chatId;
-  const sender = msg.sender;
-
-  if (!msg.isGroup) return await sendText(sock, chatId, 'Perintah ini hanya untuk grup.');
-
-  const db = readDB();
-  const sub = args[0] || '';
-  if (sub === 'on') {
-    db.settings.antilink.enabled = true;
-    db.settings.antilink.kick = args[1] === 'kick';
-    writeDB();
-    await sendText(sock, chatId, `Anti-link diaktifkan. Kick: ${db.settings.antilink.kick}`);
-  } else if (sub === 'off') {
-    db.settings.antilink.enabled = false;
-    db.settings.antilink.kick = false;
-    writeDB();
-    await sendText(sock, chatId, 'Anti-link dinonaktifkan.');
-  } else {
-    await sendText(sock, chatId, 'Gunakan: .antilink on [kick] / .antilink off');
-  }
+// Anti-link message handler
+async function handleAntiLink(sock, message) {
+    const { from, sender, body, isGroup } = message;
+    
+    if (!isGroup) return;
+    
+    const settings = db.getGroupSettings(from);
+    if (!settings.antilink) return;
+    
+    // Check if sender is admin
+    const admins = await getGroupAdmins(sock, from);
+    if (admins.includes(sender)) return;
+    
+    // Check for URLs in message
+    const urlRegex = /(https?:\/\/[^\s]+)/g;
+    const urls = body.match(urlRegex);
+    
+    if (urls) {
+        // Check if URL is whitelisted
+        const hasWhitelisted = urls.some(url => 
+            config.antilink.whitelist.some(domain => url.includes(domain))
+        );
+        
+        if (!hasWhitelisted) {
+            // Take action based on config
+            if (config.antilink.action === 'kick') {
+                try {
+                    await sock.groupParticipantsUpdate(from, [sender + '@s.whatsapp.net'], 'remove');
+                    
+                    // Notify group
+                    await sock.sendMessage(from, {
+                        text: `🚫 *ANTI-LINK SYSTEM*\n\n@${sender} has been kicked for sending links.\n\n⚠️ Links are not allowed in this group.`,
+                        mentions: [sender + '@s.whatsapp.net']
+                    });
+                } catch (error) {
+                    console.error('Failed to kick member:', error);
+                }
+            } else {
+                // Warn the user
+                await sock.sendMessage(from, {
+                    text: `⚠️ *ANTI-LINK WARNING*\n\n@${sender}, please don't send links in this group.`,
+                    mentions: [sender + '@s.whatsapp.net']
+                });
+                
+                // Delete the message
+                try {
+                    await sock.sendMessage(from, {
+                        delete: {
+                            remoteJid: from,
+                            fromMe: false,
+                            id: message.message.key.id,
+                            participant: sender + '@s.whatsapp.net'
+                        }
+                    });
+                } catch (error) {
+                    console.error('Failed to delete message:', error);
+                }
+            }
+        }
+    }
 }
 
-module.exports = { name, commands, exec };
+module.exports = { 
+    commands,
+    handleAntiLink 
+};
