@@ -23,7 +23,6 @@ async function exec(ctx) {
   if (command === 'owner') {
     await sendText(sock, chatId, `Owner: ${config.ownerNumber}`);
   } else if (command === 'self') {
-    // set bot to self mode (example toggle)
     await sendText(sock, chatId, 'Mode self diaktifkan (demo).');
   } else if (command === 'public') {
     await sendText(sock, chatId, 'Mode public diaktifkan (demo).');
