@@ -17,11 +17,10 @@ async function exec(ctx) {
 
   if (command === 'ping') {
     const now = Date.now();
-    const latency = now - msg.messageTimestamp || 0;
+    const latency = now - (msg.messageTimestamp || now);
     await sendText(sock, chatId, `Pong!\nLatency: ${latency} ms`);
   } else if (command === 'speed') {
     const t0 = Date.now();
-    // simple CPU-bound loop to simulate
     for (let i = 0; i < 100000; i++) { Math.sqrt(i); }
     const t1 = Date.now();
     await sendText(sock, chatId, `Speed test: ${t1 - t0} ms`);
