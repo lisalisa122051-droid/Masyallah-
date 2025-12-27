@@ -12,7 +12,7 @@ const path = require('path');
 const config = require('./config');
 
 const pluginsPath = path.join(__dirname, 'plugins');
-const pluginFiles = fs.readdirSync(pluginsPath).filter(f => f.endsWith('.js'));
+const pluginFiles = fs.existsSync(pluginsPath) ? fs.readdirSync(pluginsPath).filter(f => f.endsWith('.js')) : [];
 
 const plugins = {};
 for (const file of pluginFiles) {
@@ -21,10 +21,10 @@ for (const file of pluginFiles) {
 }
 
 module.exports = async (sock, ev) => {
-  // ev is the Baileys event emitter
+  // messages.upsert
   ev.on('messages.upsert', async (m) => {
     try {
-      const messages = m.messages;
+      const messages = m.messages || [];
       for (const raw of messages) {
         if (!raw.message) continue;
         const msg = await serialize(raw, sock);
@@ -94,7 +94,7 @@ module.exports = async (sock, ev) => {
               const groupMeta = msg.groupMetadata || null;
               const isAdmin = groupMeta ? (groupMeta.admins || []).includes(sender) : false;
               if (!isAdmin && !jidUtils.isOwner(sender)) {
-                // delete message and optionally kick
+                // try delete message (Baileys supports message deletion by key)
                 try {
                   await sock.sendMessage(msg.chatId, { delete: { remoteJid: msg.chatId, fromMe: false, id: msg.id } });
                 } catch (e) {
@@ -102,7 +102,9 @@ module.exports = async (sock, ev) => {
                 }
                 if (antilink.kick) {
                   try {
-                    await sock.groupParticipantsUpdate(msg.chatId, [msg.senderJid], 'remove');
+                    // remove participant by normalized number
+                    const targetJid = `${msg.sender}@s.whatsapp.net`;
+                    await sock.groupParticipantsUpdate(msg.chatId, [targetJid], 'remove');
                   } catch (e) {
                     // ignore
                   }
@@ -124,5 +126,34 @@ module.exports = async (sock, ev) => {
     }
   });
 
-  // connection updates handled in connection.js
+  // participant updates
+  ev.on('group-participants.update', async (updates) => {
+    for (const u of updates) {
+      // handle welcome/goodbye if enabled
+      try {
+        const db = readDB();
+        const welcomeSettings = db.settings?.welcome || {};
+        const chatId = u.id;
+        const enabled = welcomeSettings[chatId];
+        if (!enabled) continue;
+        if (u.action === 'add') {
+          const added = u.participants || [];
+          for (const p of added) {
+            const num = jidUtils.extractPhoneFromJid(p);
+            await sendText(sock, chatId, `Selamat datang @${num}\n${config.welcomeMessage}`);
+          }
+        } else if (u.action === 'remove') {
+          const removed = u.participants || [];
+          for (const p of removed) {
+            const num = jidUtils.extractPhoneFromJid(p);
+            await sendText(sock, chatId, `Sampai jumpa @${num}\n${config.goodbyeMessage}`);
+          }
+        }
+      } catch (e) {
+        // ignore
+      }
+    }
+  });
+
+  // other events handled elsewhere
 };
