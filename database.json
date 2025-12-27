@@ -1,0 +1,15 @@
+{
+  "users": {},
+  "chats": {},
+  "groups": {},
+  "settings": {
+    "antilink": {
+      "enabled": false,
+      "kick": false
+    },
+    "welcome": {}
+  },
+  "owner": {
+    "number": "6281234567890"
+  }
+}
