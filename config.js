@@ -9,7 +9,7 @@ module.exports = {
   sessionPath: './session',
   databaseFile: './database.json',
   botName: 'BotWA-MD',
-  version: '1.0.0',
+  version: '1.0.1',
   welcomeMessage: 'Selamat datang di grup!',
   goodbyeMessage: 'Sampai jumpa!',
   antiLink: {
