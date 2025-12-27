@@ -28,7 +28,6 @@ async function exec(ctx) {
   } else if (command === 'ytvideo') {
     const url = args[0];
     if (!url) return await sendText(sock, chatId, 'Masukkan link YouTube.');
-    // placeholder
     await sendText(sock, chatId, `Mendownload video dari: ${url}\n(Demo - implementasi download diperlukan)`);
   } else if (command === 'tiktok') {
     const url = args[0];
