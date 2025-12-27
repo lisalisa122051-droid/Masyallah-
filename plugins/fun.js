@@ -30,7 +30,6 @@ async function exec(ctx) {
   } else if (command === 'dare') {
     await sendText(sock, chatId, 'Dare: Kirim foto dengan pose lucu! (demo)');
   } else if (command === 'rate') {
-    const target = msg.quoted ? msg.quoted.sender : msg.sender;
     const score = Math.floor(Math.random() * 10) + 1;
     await sendText(sock, chatId, `Rate: ${score}/10`);
   }
