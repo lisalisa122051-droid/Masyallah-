@@ -26,7 +26,6 @@ async function exec(ctx) {
   } else if (command === 'shortlink') {
     const url = args[0];
     if (!url) return await sendText(sock, chatId, 'Masukkan URL untuk dipendekkan.');
-    // simple placeholder using tinyurl API
     try {
       const res = await axios.get(`http://tinyurl.com/api-create.php?url=${encodeURIComponent(url)}`);
       await sendText(sock, chatId, `Shortlink: ${res.data}`);
