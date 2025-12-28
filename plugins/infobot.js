@@ -1,33 +1,37 @@
-const os = require('os');
-const moment = require('moment-timezone');
+// Plugin info bot dengan thumbnail style
+const config = require('../config');
 
 module.exports = {
-    commands: ['infobot', 'botinfo', 'about'],
-    description: 'Show bot information',
-    
-    execute: async (client, m, args, text) => {
-        const { reply } = m;
-        const uptime = process.uptime();
-        const hours = Math.floor(uptime / 3600);
-        const minutes = Math.floor((uptime % 3600) / 60);
-        const seconds = Math.floor(uptime % 60);
-        
-        const info = `
-*🤖 ${global.botName} INFORMATION*
+    name: 'infobot',
+    pattern: /^(\.infobot|!bot)$/i,
+    adminOnly: false,
+    ownerOnly: false,
+    async execute(sock, m) {
+        const infoText = `
+📱 *${config.bot.name}*
+  
+├❖ *Version* : 1.0.0
+├❖ *Runtime* : Node.js
+├❖ *Library* : Baileys MD
+├❖ *Status* : Active ✅
+└❖ *Plugins* : ${require('../handler').plugins.length}
 
-*👤 Owner:* ${global.owner.join(', ')}
-*🖥️ Host:* ${os.hostname()}
-*📈 Platform:* ${os.platform()} ${os.arch()}
-*📊 Memory:* ${(os.freemem() / 1024 / 1024 / 1024).toFixed(2)} GB / ${(os.totalmem() / 1024 / 1024 / 1024).toFixed(2)} GB
-*⏰ Uptime:* ${hours}h ${minutes}m ${seconds}s
-*📅 Date:* ${moment().tz('Asia/Jakarta').format('DD MMM YYYY HH:mm:ss')}
-*🔧 Prefix:* ${global.prefix}
-*💻 Node.js:* ${process.version}
-*📦 Baileys:* Custom MD
-
-*Thank you for using this bot!*
+*Ketik .menu untuk melihat semua fitur*
         `.trim();
-        
-        await reply(info);
+
+        const buttonMessage = {
+            text: infoText,
+            footer: `Educational Bot ${new Date().getFullYear()}`,
+            buttons: [
+                {
+                    buttonId: '.menu',
+                    buttonText: { displayText: '📋 MENU' },
+                    type: 1
+                }
+            ],
+            headerType: 1
+        };
+
+        await sock.sendMessage(m.from, buttonMessage);
     }
 };
