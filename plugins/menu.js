@@ -1,146 +1,94 @@
-const config = require('../config.js');
+const { getRandom } = require('../lib/function.js');
 
-const commands = {
-    menu: {
-        help: 'Show interactive menu',
-        category: 'Main',
-        execute: async (sock, message) => {
-            const { from, pushName } = message;
-            
-            const menuText = `👋 Hello *${pushName}*! I'm *${config.botname}*
-
-📁 *MAIN MENU*
-
-Select a category below:`;
-
+module.exports = {
+    commands: ['menu', 'allmenu', 'help'],
+    description: 'Show bot menu',
+    
+    execute: async (client, m, args, text) => {
+        const { sender, from, reply } = m;
+        const prefix = global.prefix;
+        
+        // Button Message for .menu
+        if (m.body === `${prefix}menu`) {
             const buttons = [
-                { buttonId: 'allmenu', buttonText: { displayText: '📋 ALL MENU' }, type: 1 },
-                { buttonId: 'infobot', buttonText: { displayText: '🤖 BOT INFO' }, type: 1 },
-                { buttonId: 'owner', buttonText: { displayText: '👑 OWNER' }, type: 1 }
+                { buttonId: `${prefix}allmenu`, buttonText: { displayText: '📋 LIST MENU' }, type: 1 },
+                { buttonId: `${prefix}ping`, buttonText: { displayText: '🏓 PING' }, type: 1 },
+                { buttonId: `${prefix}owner`, buttonText: { displayText: '👤 OWNER' }, type: 1 },
+                { buttonId: `${prefix}infobot`, buttonText: { displayText: '🤖 BOT INFO' }, type: 1 }
             ];
-
-            const sections = [
-                {
-                    title: "QUICK ACCESS",
-                    rows: [
-                        { title: "📋 ALL MENU", rowId: "allmenu" },
-                        { title: "🤖 BOT INFO", rowId: "infobot" },
-                        { title: "👑 OWNER MENU", rowId: "owner" }
-                    ]
-                }
-            ];
-
-            // Send button message
-            await sock.sendMessage(from, {
-                text: menuText,
-                footer: `Prefix: ${config.prefix.join(', ')}`,
+            
+            const buttonMessage = {
+                text: `*${global.botName} MENU*\n\nHello @${sender.split('@')[0]}! I'm a WhatsApp bot.\n\n*Prefix:* ${prefix}\n*Owner:* ${global.owner.map(o => o).join(', ')}\n\nClick button below:`,
+                footer: 'Powered by Baileys MD',
                 buttons: buttons,
-                headerType: 1
-            });
-        }
-    },
-    
-    allmenu: {
-        help: 'Show all commands in list format',
-        category: 'Main',
-        execute: async (sock, message) => {
-            const { from } = message;
-            
-            const sections = [
-                {
-                    title: "📁 MAIN MENU",
-                    rows: [
-                        { title: "📊 BOT INFO", rowId: "infobot", description: "Bot information" },
-                        { title: "⚡ SPEED TEST", rowId: "ping", description: "Check bot speed" }
-                    ]
-                },
-                {
-                    title: "🎮 FUN MENU",
-                    rows: [
-                        { title: "😂 JOKE", rowId: "joke", description: "Random jokes" },
-                        { title: "🎯 TRUTH/DARE", rowId: "truth", description: "Truth or dare game" },
-                        { title: "⭐ RATE", rowId: "rate", description: "Rate something" }
-                    ]
-                },
-                {
-                    title: "⬇️ DOWNLOAD MENU",
-                    rows: [
-                        { title: "🎵 YOUTUBE AUDIO", rowId: "play audio", description: "Download YouTube audio" },
-                        { title: "🎬 YOUTUBE VIDEO", rowId: "ytvideo", description: "Download YouTube video" },
-                        { title: "📱 TIKTOK", rowId: "tiktok", description: "Download TikTok video" },
-                        { title: "📸 INSTAGRAM", rowId: "instagram", description: "Download Instagram content" }
-                    ]
-                },
-                {
-                    title: "🛠️ TOOLS MENU",
-                    rows: [
-                        { title: "🖼️ STICKER", rowId: "sticker", description: "Create sticker from image" },
-                        { title: "🔗 SHORTLINK", rowId: "shortlink", description: "Shorten URL" },
-                        { title: "🎵 TO AUDIO", rowId: "toaudio", description: "Convert video to audio" }
-                    ]
-                },
-                {
-                    title: "👥 GROUP MENU",
-                    rows: [
-                        { title: "👋 WELCOME", rowId: "welcome on", description: "Toggle welcome message" },
-                        { title: "🚫 ANTILINK", rowId: "antilink on", description: "Toggle anti-link" },
-                        { title: "📛 SET NAME", rowId: "setname", description: "Change group name" }
-                    ]
-                }
-            ];
-
-            await sock.sendMessage(from, {
-                text: `📚 *ALL MENU*\n\nSelect a command from the list below:`,
-                footer: `${config.botname} • Total commands: 20+`,
-                title: "COMMAND LIST",
-                buttonText: "Choose Command",
-                sections
-            });
-        }
-    },
-    
-    help: {
-        help: 'Show help for specific command',
-        category: 'Main',
-        execute: async (sock, message, args) => {
-            const { from } = message;
-            
-            if (args.length === 0) {
-                await sock.sendMessage(from, {
-                    text: `Usage: .help <command>\nExample: .help sticker`
-                });
-                return;
-            }
-            
-            const cmd = args[0].toLowerCase();
-            let helpText = `Help for command: *${cmd}*\n\n`;
-            
-            // Search through all plugins
-            const plugins = require('../handler.js');
-            let found = false;
-            
-            // This is a simplified search - in real implementation you'd search through all registered commands
-            const commandHelp = {
-                'sticker': 'Create sticker from image/video\nUsage: .sticker <reply to image/video>',
-                'ping': 'Check bot response time\nUsage: .ping',
-                'play': 'Download YouTube audio/video\nUsage: .play <url>',
-                'joke': 'Get random joke\nUsage: .joke',
-                'owner': 'Show owner menu\nUsage: .owner',
-                'menu': 'Show interactive menu\nUsage: .menu'
+                headerType: 1,
+                mentions: [sender]
             };
             
-            if (commandHelp[cmd]) {
-                helpText += commandHelp[cmd];
-                found = true;
-            }
+            return client.sendMessage(from, buttonMessage);
+        }
+        
+        // List Message for .allmenu
+        if (m.body === `${prefix}allmenu` || m.body === `${prefix}help`) {
+            const sections = [
+                {
+                    title: "📁 CORE",
+                    rows: [
+                        { title: "PING", rowId: `${prefix}ping`, description: "Check bot latency" },
+                        { title: "MENU", rowId: `${prefix}menu`, description: "Show button menu" },
+                        { title: "INFO BOT", rowId: `${prefix}infobot`, description: "Bot information" }
+                    ]
+                },
+                {
+                    title: "👤 OWNER",
+                    rows: [
+                        { title: "OWNER", rowId: `${prefix}owner`, description: "Contact owner" },
+                        { title: "RESTART", rowId: `${prefix}restart`, description: "Restart bot (owner)" }
+                    ]
+                },
+                {
+                    title: "👥 GROUP",
+                    rows: [
+                        { title: "SETNAME", rowId: `${prefix}setname`, description: "Change group name" },
+                        { title: "WELCOME ON/OFF", rowId: `${prefix}welcome`, description: "Toggle welcome" },
+                        { title: "PROMOTE", rowId: `${prefix}promote`, description: "Promote member" }
+                    ]
+                },
+                {
+                    title: "🎉 FUN",
+                    rows: [
+                        { title: "JOKE", rowId: `${prefix}joke`, description: "Random joke" },
+                        { title: "TRUTH", rowId: `${prefix}truth`, description: "Truth question" },
+                        { title: "DARE", rowId: `${prefix}dare`, description: "Dare challenge" }
+                    ]
+                },
+                {
+                    title: "⬇️ DOWNLOAD",
+                    rows: [
+                        { title: "PLAY", rowId: `${prefix}play`, description: "Download audio/video" },
+                        { title: "TIKTOK", rowId: `${prefix}tiktok`, description: "Download TikTok" },
+                        { title: "INSTAGRAM", rowId: `${prefix}instagram`, description: "Download IG" }
+                    ]
+                },
+                {
+                    title: "🛠️ TOOLS",
+                    rows: [
+                        { title: "STICKER", rowId: `${prefix}sticker`, description: "Create sticker" },
+                        { title: "TOIMG", rowId: `${prefix}toimg`, description: "Convert sticker to image" },
+                        { title: "SHORTLINK", rowId: `${prefix}shortlink`, description: "Shorten URL" }
+                    ]
+                }
+            ];
             
-            if (!found) {
-                helpText = `Command *${cmd}* not found. Use .allmenu to see available commands.`;
-            }
+            const listMessage = {
+                text: `*${global.botName} ALL MENU*\nTotal commands: ${sections.reduce((a, b) => a + b.rows.length, 0)}`,
+                footer: "Select from list below",
+                title: "FULL MENU",
+                buttonText: "OPEN MENU",
+                sections
+            };
             
-            await sock.sendMessage(from, { text: helpText });
+            return client.sendMessage(from, listMessage);
         }
     }
 };
-
-module.exports = { commands };
