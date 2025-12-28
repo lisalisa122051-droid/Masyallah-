@@ -1,12 +1,9 @@
 {
-  "users": {},
+  "links_detected": [],
   "groups": {},
-  "settings": {
-    "antilink": {},
-    "welcome": {}
-  },
+  "users": {},
   "stats": {
-    "commands": 0,
-    "messages": 0
+    "total_messages": 0,
+    "active_plugins": 0
   }
 }
