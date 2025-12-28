@@ -1,65 +1,67 @@
+// Sistem handler dan plugin loader
 const fs = require('fs');
 const path = require('path');
-const { color, isUrl } = require('./lib/function.js');
-const { isGroupJid, isOwner } = require('./lib/jidUtils.js');
-const config = require('./config.js');
+const db = require('./lib/database');
+const { isOwner } = require('./lib/jidUtils');
+const config = require('./config');
 
-// Load all plugins
-const plugins = {};
-const pluginDir = path.join(__dirname, 'plugins');
-const pluginFiles = fs.readdirSync(pluginDir).filter(file => file.endsWith('.js'));
+let plugins = [];
 
-for (const file of pluginFiles) {
-    const plugin = require(path.join(pluginDir, file));
-    plugins[file.replace('.js', '')] = plugin;
-    console.log(color(`✓ Plugin loaded: ${file}`, 'green'));
-}
+const loadPlugins = async (sock) => {
+    const pluginsDir = path.join(__dirname, 'plugins');
+    plugins = [];
 
-module.exports = async (client, m) => {
-    const { body, sender, from, isGroup, isBotAdmin, isAdmin, reply } = m;
-    if (!body || body.length < 2) return;
-    
-    // Parse command
-    const isCmd = body.startsWith(config.prefix);
-    if (!isCmd) return;
-    
-    const args = body.slice(config.prefix.length).trim().split(/ +/);
-    const command = args.shift().toLowerCase();
-    const text = args.join(' ');
-    
-    // Check if command exists
-    let found = false;
-    for (const [pluginName, plugin] of Object.entries(plugins)) {
-        if (plugin.commands && plugin.commands.includes(command)) {
-            found = true;
-            
-            // Permission checks
-            if (plugin.ownerOnly && !isOwner(sender)) {
-                return reply(config.messages.ownerOnly);
-            }
-            if (plugin.groupOnly && !isGroup) {
-                return reply(config.messages.groupOnly);
-            }
-            if (plugin.adminOnly && isGroup && !isAdmin) {
-                return reply(config.messages.adminOnly);
-            }
-            if (plugin.botAdminOnly && isGroup && !isBotAdmin) {
-                return reply(config.messages.botAdmin);
-            }
-            
-            // Execute command
+    fs.readdirSync(pluginsDir).forEach(file => {
+        if (file.endsWith('.js')) {
             try {
-                await plugin.execute(client, m, args, text);
+                const plugin = require(path.join(pluginsDir, file));
+                if (plugin.name && plugin.execute) {
+                    plugins.push(plugin);
+                }
             } catch (error) {
-                console.error(error);
-                reply(config.messages.error);
+                console.error(`Error loading plugin ${file}:`, error);
             }
-            break;
+        }
+    });
+
+    console.log(`Loaded ${plugins.length} plugins`);
+
+    // Event handler pesan
+    sock.ev.on('messages.upsert', async ({ messages }) => {
+        const m = messages[0];
+        if (!m.message || m.key.fromMe) return;
+
+        const serialized = require('./lib/serialize').serialize(sock, { messages: [m] });
+        if (!serialized) return;
+
+        await handleMessage(sock, serialized);
+    });
+};
+
+const handleMessage = async (sock, m) => {
+    // Cari plugin yang cocok
+    for (const plugin of plugins) {
+        if (plugin.pattern.test(m.body) && 
+            (!plugin.adminOnly || await checkPermission(sock, m, plugin.adminOnly)) &&
+            (!plugin.ownerOnly || isOwner(m.sender, config.bot.owner))) {
+            
+            try {
+                await plugin.execute(sock, m);
+                return; // Hanya execute satu plugin pertama yang match
+            } catch (error) {
+                console.error(`Error executing plugin ${plugin.name}:`, error);
+                await sock.sendMessage(m.from, { 
+                    text: `❌ Error: ${error.message}` 
+                });
+            }
         }
     }
-    
-    if (!found) {
-        // Optional: unknown command handler
-        // reply(`Command *${command}* not found. Type *.menu* for list.`);
-    }
 };
+
+const checkPermission = async (sock, m, level = 'admin') => {
+    if (!m.isGroup) return true;
+    // Implementasi pengecekan admin disini
+    return true; // Simplified untuk pembelajaran
+};
+
+module.exports = { loadPlugins };
