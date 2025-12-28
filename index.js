@@ -1,94 +1,109 @@
-const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion, makeCacheableSignalKeyStore, delay } = require('@whiskeysockets/baileys');
-const { Boom } = require('@hapi/boom');
+const { makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion, generateForwardMessageContent, prepareWAMessageMedia, generateWAMessageFromContent, generateMessageID, downloadContentFromMessage, getAggregateVotesInPollMessage, proto } = require('@whiskeysockets/baileys');
 const qrcode = require('qrcode-terminal');
-const fs = require('fs-extra');
+const fs = require('fs');
 const path = require('path');
+const cron = require('node-cron');
 const P = require('pino');
 
+// Config
 const config = require('./config.js');
+
+// Libs
+const { serialize, antiSpam } = require('./lib/serialize.js');
+const { isGroupJid, extractPhoneFromJid, normalizePhoneNumber, mapRawJidToOriginalNumber, processJidFromGroupMessage, isOwner } = require('./lib/jidUtils.js');
+const { saveDatabase, loadDatabase } = require('./lib/database.js');
+const { color } = require('./lib/function.js');
+
+// Handler
 const handler = require('./handler.js');
-const { serialize } = require('./lib/serialize.js');
 
-// Create session directory if not exists
-if (!fs.existsSync('./session')) {
-    fs.mkdirSync('./session');
-}
+// Session directory
+const sessionDir = path.join(__dirname, 'session');
+if (!fs.existsSync(sessionDir)) fs.mkdirSync(sessionDir);
 
-// Start bot
+// Global variable
+global.db = loadDatabase();
+global.owner = config.owner;
+global.botName = config.botName;
+global.prefix = config.prefix;
+
 async function startBot() {
-    const { state, saveCreds } = await useMultiFileAuthState('./session');
-    const { version } = await fetchLatestBaileysVersion();
-    
-    const sock = makeWASocket({
-        version,
+    const { state, saveCreds } = await useMultiFileAuthState(sessionDir);
+    const { version, isLatest } = await fetchLatestBaileysVersion();
+
+    const client = makeWASocket({
         logger: P({ level: 'silent' }),
-        printQRInTerminal: false,
-        auth: {
-            creds: state.creds,
-            keys: makeCacheableSignalKeyStore(state.keys, P({ level: 'silent' })),
-        },
+        printQRInTerminal: true,
         browser: ['Ubuntu', 'Chrome', '20.0.04'],
-        generateHighQualityLinkPreview: true,
-        getMessage: async (key) => {
-            return {
-                conversation: 'message unavailable'
-            };
-        },
+        auth: state,
+        version
     });
 
-    // Save credentials when updated
-    sock.ev.on('creds.update', saveCreds);
+    client.ev.on('creds.update', saveCreds);
 
-    // QR Code generation
-    sock.ev.on('connection.update', async (update) => {
+    client.ev.on('connection.update', async (update) => {
         const { connection, lastDisconnect, qr } = update;
-        
-        if (qr) {
-            console.log('Scan QR Code below:');
-            qrcode.generate(qr, { small: true });
-        }
-        
+        if (qr) qrcode.generate(qr, { small: true });
         if (connection === 'close') {
-            const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
-            console.log('Connection closed due to:', lastDisconnect?.error, ', reconnecting:', shouldReconnect);
-            
+            const shouldReconnect = lastDisconnect.error?.output?.statusCode !== DisconnectReason.loggedOut;
             if (shouldReconnect) {
-                await delay(5000);
+                console.log(color('Connection lost, reconnecting...', 'yellow'));
                 startBot();
+            } else {
+                console.log(color('Logged out, please scan QR again.', 'red'));
             }
         } else if (connection === 'open') {
-            console.log('Bot connected successfully!');
-            console.log('Welcome to WhatsApp Multi-Device Bot');
+            console.log(color('Connected successfully!', 'green'));
+            // Auto save database every 5 minutes
+            cron.schedule('*/5 * * * *', () => {
+                saveDatabase(global.db);
+                console.log(color('Database auto-saved.', 'cyan'));
+            });
         }
     });
 
-    // Process messages
-    sock.ev.on('messages.upsert', async (m) => {
+    client.ev.on('messages.upsert', async (m) => {
         const msg = m.messages[0];
-        if (!msg.message || msg.key.remoteJid === 'status@broadcast') return;
+        if (!msg.message || msg.key.remoteJid === 'status@broadcast' || msg.key.fromMe) return;
+
+        // Serialize message
+        const serialized = serialize(client, msg);
+        if (!serialized) return;
+
+        // Anti spam
+        if (antiSpam(serialized.sender, 3000)) return;
+
+        // Process command
+        await handler(client, serialized);
+    });
+
+    // Handle group updates
+    client.ev.on('group-participants.update', async (update) => {
+        const { id, participants, action } = update;
+        const metadata = await client.groupMetadata(id);
+        const groupName = metadata.subject;
+        const welcomeStatus = global.db.groups?.[id]?.welcome || false;
         
-        try {
-            // Serialize message
-            const serialized = await serialize(msg, sock);
-            
-            // Send to handler
-            await handler(sock, serialized);
-        } catch (error) {
-            console.error('Error processing message:', error);
+        if (welcomeStatus && action === 'add') {
+            const text = `Welcome @${participants[0].split('@')[0]} to *${groupName}*!\nPlease read group rules.`;
+            const mentions = participants.map(p => p);
+            await client.sendMessage(id, { text, mentions });
         }
     });
 
-    // Anti-crash
-    process.on('unhandledRejection', (reason, promise) => {
-        console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+    // Handle incoming call
+    client.ev.on('call', async (call) => {
+        await client.sendMessage(call.from, { text: 'Sorry, I cannot receive calls.' });
     });
 
-    process.on('uncaughtException', (error) => {
-        console.error('Uncaught Exception:', error);
+    // Save database on exit
+    process.on('SIGINT', () => {
+        saveDatabase(global.db);
+        console.log(color('Database saved before exit.', 'cyan'));
+        process.exit(0);
     });
 
-    return sock;
+    return client;
 }
 
-// Start the bot
 startBot();
