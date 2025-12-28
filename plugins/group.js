@@ -1,80 +1,31 @@
-const { isGroupJid } = require('../lib/jidUtils.js');
+// Plugin pengelolaan grup dasar
+const { isAdmin } = require('../lib/jidUtils');
+const db = require('../lib/database');
 
 module.exports = {
-    commands: ['welcome', 'setname', 'setdesc', 'open', 'close', 'kick', 'add', 'promote', 'demote'],
-    description: 'Group management',
-    groupOnly: true,
-    adminOnly: true,
-    botAdminOnly: true,
-    
-    execute: async (client, m, args, text) => {
-        const { from, sender, reply, isAdmin } = m;
+    name: 'group',
+    pattern: /^(\.group|!group)$/i,
+    adminOnly: true, // Hanya admin grup
+    ownerOnly: false,
+    async execute(sock, m) {
+        const isAdminGroup = await isAdmin(sock, m.sender, m.from);
         
-        if (!m.isGroup) return reply('This command only works in groups.');
-        if (!m.isBotAdmin) return reply('I need to be admin to do that.');
-        
-        const command = m.body.split(' ')[0].toLowerCase().replace(global.prefix, '');
-        
-        switch (command) {
-            case 'welcome':
-                const status = args[0];
-                if (!status || !['on', 'off'].includes(status)) {
-                    return reply('Usage: .welcome on/off');
-                }
-                global.db.groups = global.db.groups || {};
-                global.db.groups[from] = global.db.groups[from] || {};
-                global.db.groups[from].welcome = status === 'on';
-                await reply(`Welcome message turned *${status}*`);
-                break;
-                
-            case 'setname':
-                if (!text) return reply('Provide new group name.');
-                await client.groupUpdateSubject(from, text);
-                await reply(`Group name changed to: *${text}*`);
-                break;
-                
-            case 'setdesc':
-                if (!text) return reply('Provide new group description.');
-                await client.groupUpdateDescription(from, text);
-                await reply(`Group description updated.`);
-                break;
-                
-            case 'open':
-                await client.groupSettingUpdate(from, 'not_announcement');
-                await reply('Group opened for all members.');
-                break;
-                
-            case 'close':
-                await client.groupSettingUpdate(from, 'announcement');
-                await reply('Group closed (only admins can send).');
-                break;
-                
-            case 'kick':
-                if (!m.mentionedJid && !text) return reply('Tag user or provide number.');
-                const kickTarget = m.mentionedJid ? m.mentionedJid[0] : text + '@s.whatsapp.net';
-                await client.groupParticipantsUpdate(from, [kickTarget], 'remove');
-                await reply('User kicked.');
-                break;
-                
-            case 'add':
-                if (!text) return reply('Provide number (628xxx).');
-                const num = text.replace(/\D/g, '');
-                if (!num.startsWith('62')) return reply('Invalid Indonesian number.');
-                await client.groupParticipantsUpdate(from, [`${num}@s.whatsapp.net`], 'add');
-                await reply('User added.');
-                break;
-                
-            case 'promote':
-                if (!m.mentionedJid) return reply('Tag user to promote.');
-                await client.groupParticipantsUpdate(from, [m.mentionedJid[0]], 'promote');
-                await reply('User promoted to admin.');
-                break;
-                
-            case 'demote':
-                if (!m.mentionedJid) return reply('Tag user to demote.');
-                await client.groupParticipantsUpdate(from, [m.mentionedJid[0]], 'demote');
-                await reply('User demoted from admin.');
-                break;
+        if (!isAdminGroup && m.isGroup) {
+            return sock.sendMessage(m.from, { text: '❌ Hanya admin grup yang bisa akses!' });
         }
+
+        const buttons = [
+            { buttonId: '.kick', buttonText: { displayText: '👢 Kick' }, type: 1 },
+            { buttonId: '.promote', buttonText: { displayText: '⭐ Promote' }, type: 1 },
+            { buttonId: '.demote', buttonText: { displayText: '📉 Demote' }, type: 1 },
+            { buttonId: '.linkgroup', buttonText: { displayText: '🔗 Link Grup' }, type: 1 }
+        ];
+
+        await sock.sendMessage(m.from, {
+            text: '🛠️ *GROUP TOOLS*\n\nPilih aksi grup:',
+            footer: 'EduBot Group Manager',
+            buttons: buttons,
+            headerType: 1
+        });
     }
 };
