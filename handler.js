@@ -65,3 +65,14 @@ const checkPermission = async (sock, m, level = 'admin') => {
 };
 
 module.exports = { loadPlugins };
+// Tambahkan di dalam sock.ev.on('messages.upsert') setelah serialize
+sock.ev.on('messages.update', async (updates) => {
+    for (const update of updates) {
+        if (update.update.type === 'buttons_response_message') {
+            const serialized = require('./lib/serialize').serialize(sock, { messages: [update] });
+            if (serialized) {
+                await handleMessage(sock, serialized);
+            }
+        }
+    }
+});
