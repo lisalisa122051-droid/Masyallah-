@@ -2,12 +2,11 @@
   "users": {},
   "groups": {},
   "settings": {
-    "antilink": false,
-    "welcome": true,
-    "goodbye": true
+    "antilink": {},
+    "welcome": {}
   },
   "stats": {
-    "totalCommands": 0,
-    "startTime": ""
+    "commands": 0,
+    "messages": 0
   }
 }
