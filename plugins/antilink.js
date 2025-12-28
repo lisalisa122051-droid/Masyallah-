@@ -1,102 +1,75 @@
-const db = require('../lib/database.js');
-const config = require('../config.js');
-const { getGroupAdmins } = require('../lib/jidUtils.js');
+const { isGroupJid, isOwner } = require('../lib/jidUtils.js');
 
-const commands = {
-    antilink: {
-        help: 'Toggle anti-link protection',
-        category: 'Group',
-        group: true,
-        admin: true,
-        execute: async (sock, message, args) => {
-            const { from } = message;
-            
-            if (args.length === 0) {
-                const settings = db.getGroupSettings(from);
-                await sock.sendMessage(from, {
-                    text: `Anti-link protection is currently *${settings.antilink ? 'ON' : 'OFF'}*\n\nUsage: .antilink <on/off>`
-                });
-                return;
+module.exports = {
+    commands: ['antilink'],
+    description: 'Anti-link protection',
+    groupOnly: true,
+    adminOnly: true,
+    botAdminOnly: true,
+    
+    execute: async (client, m, args, text) => {
+        const { from, sender, reply, isAdmin } = m;
+        
+        if (!m.isGroup) return;
+        
+        const command = m.body.split(' ')[0].toLowerCase().replace(global.prefix, '');
+        
+        if (command === 'antilink') {
+            const status = args[0];
+            if (!status || !['on', 'off'].includes(status)) {
+                return reply('Usage: .antilink on/off');
             }
             
-            const action = args[0].toLowerCase();
-            if (action === 'on' || action === 'off') {
-                db.setAntilink(from, action === 'on');
-                await sock.sendMessage(from, {
-                    text: `Anti-link protection has been turned *${action}*`
-                });
-            } else {
-                await sock.sendMessage(from, {
-                    text: 'Invalid option. Use "on" or "off"'
-                });
-            }
+            global.db.settings = global.db.settings || {};
+            global.db.settings.antilink = global.db.settings.antilink || {};
+            global.db.settings.antilink[from] = status === 'on';
+            
+            await reply(`Anti-link turned *${status}*`);
         }
     }
 };
 
-// Anti-link message handler
-async function handleAntiLink(sock, message) {
-    const { from, sender, body, isGroup } = message;
-    
-    if (!isGroup) return;
-    
-    const settings = db.getGroupSettings(from);
-    if (!settings.antilink) return;
-    
-    // Check if sender is admin
-    const admins = await getGroupAdmins(sock, from);
-    if (admins.includes(sender)) return;
-    
-    // Check for URLs in message
-    const urlRegex = /(https?:\/\/[^\s]+)/g;
-    const urls = body.match(urlRegex);
-    
-    if (urls) {
-        // Check if URL is whitelisted
-        const hasWhitelisted = urls.some(url => 
-            config.antilink.whitelist.some(domain => url.includes(domain))
-        );
+// Additional event handler for anti-link (to be added in index.js)
+function antiLinkHandler(client) {
+    client.ev.on('messages.upsert', async (m) => {
+        const msg = m.messages[0];
+        if (!msg.message || msg.key.fromMe) return;
         
-        if (!hasWhitelisted) {
-            // Take action based on config
-            if (config.antilink.action === 'kick') {
-                try {
-                    await sock.groupParticipantsUpdate(from, [sender + '@s.whatsapp.net'], 'remove');
-                    
-                    // Notify group
-                    await sock.sendMessage(from, {
-                        text: `🚫 *ANTI-LINK SYSTEM*\n\n@${sender} has been kicked for sending links.\n\n⚠️ Links are not allowed in this group.`,
-                        mentions: [sender + '@s.whatsapp.net']
-                    });
-                } catch (error) {
-                    console.error('Failed to kick member:', error);
+        const from = msg.key.remoteJid;
+        const sender = msg.key.participant || msg.key.remoteJid;
+        
+        if (!isGroupJid(from)) return;
+        
+        // Check if anti-link is enabled for this group
+        const antilinkEnabled = global.db.settings?.antilink?.[from];
+        if (!antilinkEnabled) return;
+        
+        // Check if sender is admin or owner
+        try {
+            const metadata = await client.groupMetadata(from);
+            const participant = metadata.participants.find(p => p.id === sender);
+            if (participant?.admin === 'admin' || participant?.admin === 'superadmin') return;
+        } catch {}
+        
+        // Detect links
+        const body = msg.message?.conversation || msg.message?.extendedTextMessage?.text || '';
+        const linkRegex = /(https?:\/\/[^\s]+)/gi;
+        if (linkRegex.test(body)) {
+            await client.sendMessage(from, {
+                delete: {
+                    remoteJid: from,
+                    fromMe: false,
+                    id: msg.key.id,
+                    participant: sender
                 }
-            } else {
-                // Warn the user
-                await sock.sendMessage(from, {
-                    text: `⚠️ *ANTI-LINK WARNING*\n\n@${sender}, please don't send links in this group.`,
-                    mentions: [sender + '@s.whatsapp.net']
-                });
-                
-                // Delete the message
-                try {
-                    await sock.sendMessage(from, {
-                        delete: {
-                            remoteJid: from,
-                            fromMe: false,
-                            id: message.message.key.id,
-                            participant: sender + '@s.whatsapp.net'
-                        }
-                    });
-                } catch (error) {
-                    console.error('Failed to delete message:', error);
-                }
-            }
+            });
+            
+            await client.sendMessage(from, {
+                text: `@${sender.split('@')[0]} sent a link!`,
+                mentions: [sender]
+            });
         }
-    }
+    });
 }
 
-module.exports = { 
-    commands,
-    handleAntiLink 
-};
+module.exports.antiLinkHandler = antiLinkHandler;
