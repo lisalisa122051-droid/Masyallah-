@@ -1,7 +1,7 @@
 {
   "name": "bot-wa-md",
-  "version": "1.0.0",
-  "description": "WhatsApp Multi-Device Bot",
+  "version": "3.0.0",
+  "description": "WhatsApp Bot Multi Device",
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
@@ -10,25 +10,19 @@
   "dependencies": {
     "@whiskeysockets/baileys": "github:rapipppganzz/rapipbailyes",
     "qrcode-terminal": "^0.12.0",
-    "fs-extra": "^11.2.0",
-    "axios": "^1.6.2",
-    "moment": "^2.29.4",
-    "fluent-ffmpeg": "^2.1.2",
+    "node-cron": "^3.0.3",
+    "axios": "^1.6.7",
+    "moment-timezone": "^1.0.2",
     "form-data": "^4.0.0",
+    "fluent-ffmpeg": "^2.1.2",
     "ytdl-core": "^4.11.5",
     "youtube-search-api": "^1.1.0",
-    "@bochilteam/scraper": "^1.0.8",
-    "mathjs": "^12.3.0",
-    "node-cron": "^3.0.3",
     "cheerio": "^1.0.0-rc.12",
-    "crypto": "^1.0.1",
-    "valid-url": "^1.0.9",
-    "libphonenumber-js": "^1.10.49"
-  },
-  "devDependencies": {
-    "nodemon": "^3.0.1"
+    "google-it": "^1.6.8"
   },
   "engines": {
-    "node": ">=16.0.0"
-  }
+    "node": ">=18"
+  },
+  "author": "SeniorDev",
+  "license": "MIT"
 }
