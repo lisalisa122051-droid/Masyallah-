@@ -1,109 +1,45 @@
-const { makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion, generateForwardMessageContent, prepareWAMessageMedia, generateWAMessageFromContent, generateMessageID, downloadContentFromMessage, getAggregateVotesInPollMessage, proto } = require('@whiskeysockets/baileys');
-const qrcode = require('qrcode-terminal');
-const fs = require('fs');
-const path = require('path');
-const cron = require('node-cron');
-const P = require('pino');
+// Entry point utama bot
+require('qrcode-terminal');
+const { Boom } = require('@hapi/boom');
+const makeWASocket = require('@whiskeysockets/baileys').default;
+const pino = require('pino');
 
-// Config
-const config = require('./config.js');
+const config = require('./config');
+const { connection } = require('./lib/connection');
+const { loadPlugins } = require('./handler');
 
-// Libs
-const { serialize, antiSpam } = require('./lib/serialize.js');
-const { isGroupJid, extractPhoneFromJid, normalizePhoneNumber, mapRawJidToOriginalNumber, processJidFromGroupMessage, isOwner } = require('./lib/jidUtils.js');
-const { saveDatabase, loadDatabase } = require('./lib/database.js');
-const { color } = require('./lib/function.js');
+// Logger
+const logger = pino({ level: 'silent' });
 
-// Handler
-const handler = require('./handler.js');
-
-// Session directory
-const sessionDir = path.join(__dirname, 'session');
-if (!fs.existsSync(sessionDir)) fs.mkdirSync(sessionDir);
-
-// Global variable
-global.db = loadDatabase();
-global.owner = config.owner;
-global.botName = config.botName;
-global.prefix = config.prefix;
-
+// Inisialisasi koneksi
 async function startBot() {
-    const { state, saveCreds } = await useMultiFileAuthState(sessionDir);
-    const { version, isLatest } = await fetchLatestBaileysVersion();
-
-    const client = makeWASocket({
-        logger: P({ level: 'silent' }),
-        printQRInTerminal: true,
-        browser: ['Ubuntu', 'Chrome', '20.0.04'],
-        auth: state,
-        version
+    const sock = makeWASocket({
+        logger,
+        printQRInTerminal: config.qr.showInTerminal,
+        auth: connection.useMultiFileAuthState(config.session.folder),
+        browser: ['EduBot', 'Chrome', '1.0.0']
     });
 
-    client.ev.on('creds.update', saveCreds);
-
-    client.ev.on('connection.update', async (update) => {
+    // Event handler koneksi
+    sock.ev.on('connection.update', async (update) => {
         const { connection, lastDisconnect, qr } = update;
-        if (qr) qrcode.generate(qr, { small: true });
-        if (connection === 'close') {
-            const shouldReconnect = lastDisconnect.error?.output?.statusCode !== DisconnectReason.loggedOut;
-            if (shouldReconnect) {
-                console.log(color('Connection lost, reconnecting...', 'yellow'));
-                startBot();
-            } else {
-                console.log(color('Logged out, please scan QR again.', 'red'));
-            }
-        } else if (connection === 'open') {
-            console.log(color('Connected successfully!', 'green'));
-            // Auto save database every 5 minutes
-            cron.schedule('*/5 * * * *', () => {
-                saveDatabase(global.db);
-                console.log(color('Database auto-saved.', 'cyan'));
-            });
-        }
-    });
-
-    client.ev.on('messages.upsert', async (m) => {
-        const msg = m.messages[0];
-        if (!msg.message || msg.key.remoteJid === 'status@broadcast' || msg.key.fromMe) return;
-
-        // Serialize message
-        const serialized = serialize(client, msg);
-        if (!serialized) return;
-
-        // Anti spam
-        if (antiSpam(serialized.sender, 3000)) return;
-
-        // Process command
-        await handler(client, serialized);
-    });
-
-    // Handle group updates
-    client.ev.on('group-participants.update', async (update) => {
-        const { id, participants, action } = update;
-        const metadata = await client.groupMetadata(id);
-        const groupName = metadata.subject;
-        const welcomeStatus = global.db.groups?.[id]?.welcome || false;
         
-        if (welcomeStatus && action === 'add') {
-            const text = `Welcome @${participants[0].split('@')[0]} to *${groupName}*!\nPlease read group rules.`;
-            const mentions = participants.map(p => p);
-            await client.sendMessage(id, { text, mentions });
+        if (qr) {
+            console.log('Scan QR Code di atas!');
+        }
+        
+        if (connection === 'close') {
+            const shouldReconnect = (lastDisconnect?.error instanceof Boom)?.output?.statusCode !== 401;
+            console.log('Koneksi terputus:', lastDisconnect?.error, 'Reconnect:', shouldReconnect);
+            if (shouldReconnect) startBot();
+        } else if (connection === 'open') {
+            console.log(`${config.bot.name} siap digunakan!`);
+            await loadPlugins(sock); // Load semua plugin
         }
     });
 
-    // Handle incoming call
-    client.ev.on('call', async (call) => {
-        await client.sendMessage(call.from, { text: 'Sorry, I cannot receive calls.' });
-    });
-
-    // Save database on exit
-    process.on('SIGINT', () => {
-        saveDatabase(global.db);
-        console.log(color('Database saved before exit.', 'cyan'));
-        process.exit(0);
-    });
-
-    return client;
+    return sock;
 }
 
-startBot();
+// Jalankan bot
+startBot().catch(console.error);
